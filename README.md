@@ -1,40 +1,22 @@
 # Voice-Agent
 
-Voice-Agent is a modular Python desktop voice agent designed to grow from a simple push-to-talk assistant into a realtime, interruptible, tool-using desktop agent.
+Bắt đầu lại từ đầu với một mục tiêu duy nhất: **nhận giọng nói từ microphone và chuyển thành văn bản ngay trên terminal**.
 
-## Current milestone: v0.1
-
-The first milestone implements a working chained voice pipeline:
+## Luồng hiện tại
 
 ```text
-Microphone -> Speech-to-Text -> Agent Core -> LLM -> Text-to-Speech -> Speaker
-                                |      |
-                                |      +-> Tool calls
-                                +-> Conversation memory
+Microphone -> Audio -> faster-whisper -> Text -> Terminal
 ```
 
-Included today:
+Phiên bản này chưa có LLM, TTS, Agent, memory, tools hay cloud API.
 
-- Push-to-talk microphone capture.
-- OpenAI speech transcription provider.
-- OpenAI Responses API model provider.
-- OpenAI speech synthesis provider.
-- Short-term conversation memory.
-- Tool registry and a real `get_current_time` tool.
-- Provider interfaces so STT, LLM and TTS can be replaced later.
-- Text mode for development without a microphone.
-- Doctor command for configuration/audio diagnostics.
-- Architecture and roadmap documentation.
-
-The design intentionally keeps voice I/O separate from the Agent Core. Future clients such as Telegram, a desktop UI or an API can reuse the same core.
-
-## Requirements
+## Yêu cầu
 
 - Python 3.11+
-- A working microphone and speaker for voice mode
-- An OpenAI API key for the default providers
+- Microphone
+- Windows, Linux hoặc macOS
 
-## Install
+## Cài đặt
 
 ### Windows PowerShell
 
@@ -42,98 +24,49 @@ The design intentionally keeps voice I/O separate from the Agent Core. Future cl
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
-Copy-Item .env.example .env
+pip install -r requirements.txt
 ```
 
-### Linux / macOS
+## Chạy
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-pip install -e '.[dev]'
-cp .env.example .env
+```powershell
+python main.py
 ```
 
-Set the key in `.env`:
+Sau đó:
 
-```env
-OPENAI_API_KEY=your_key_here
-```
+1. Nhấn Enter để bắt đầu ghi âm.
+2. Nói vào microphone.
+3. Nhấn Enter để kết thúc.
+4. Chương trình dùng `faster-whisper` chạy local để chuyển âm thanh thành văn bản.
+5. Văn bản được in ra terminal.
 
-## Run
-
-### Voice mode
-
-```bash
-voice-agent
-```
-
-or:
-
-```bash
-python -m voice_agent
-```
-
-Press Enter to start recording, speak, then press Enter again to stop recording. The agent transcribes the audio, reasons, optionally calls tools, and speaks the result.
-
-### Text mode
-
-Useful when developing on a machine without a microphone:
-
-```bash
-voice-agent --text
-```
-
-### Diagnostics
-
-```bash
-voice-agent --doctor
-```
-
-This checks environment configuration and attempts to enumerate PortAudio devices.
-
-## Configuration
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `OPENAI_API_KEY` | required | API key for the default providers |
-| `VOICE_AGENT_CHAT_MODEL` | `gpt-5-mini` | LLM used by the Agent Core |
-| `VOICE_AGENT_STT_MODEL` | `gpt-4o-mini-transcribe` | Speech-to-text model |
-| `VOICE_AGENT_TTS_MODEL` | `gpt-4o-mini-tts` | Text-to-speech model |
-| `VOICE_AGENT_TTS_VOICE` | `marin` | Voice used for speech output |
-| `VOICE_AGENT_LANGUAGE` | `vi` | STT language hint |
-| `VOICE_AGENT_SAMPLE_RATE` | `16000` | Microphone sample rate |
-| `VOICE_AGENT_CHANNELS` | `1` | Microphone channels |
-| `VOICE_AGENT_MAX_HISTORY_TURNS` | `12` | Short-term conversation history |
-| `VOICE_AGENT_MAX_TOOL_ROUNDS` | `4` | Safety limit for tool loops |
-
-## Project layout
+Ví dụ:
 
 ```text
-src/voice_agent/
-├── agent/          # Agent runtime and orchestration
-├── audio/          # Microphone and speaker adapters
-├── config/         # Environment/settings
-├── domain/         # Shared message types
-├── memory/         # Conversation memory
-├── models/         # LLM provider interface + OpenAI implementation
-├── prompts/        # Voice-specific instructions
-├── stt/            # STT provider interface + OpenAI implementation
-├── tools/          # Tool contract, registry and built-ins
-└── tts/            # TTS provider interface + OpenAI implementation
+Voice-Agent: Speech-to-Text
+Loading local Whisper model...
+Ready. Press Ctrl+C to exit.
+
+Press Enter to start recording...
+Recording... speak now, then press Enter to stop.
+Transcribing...
+You: xin chào đây là chương trình nhận diện giọng nói
 ```
 
-For the full design, decisions, safety model and development phases, see [`docs/VOICE_AGENT_DESIGN.md`](docs/VOICE_AGENT_DESIGN.md).
+## Cấu hình ban đầu
 
-## Validation
+`main.py` đang dùng:
 
-```bash
-python -m compileall -q src tests
-pytest -q
-```
+- Sample rate: `16000 Hz`
+- Audio: mono
+- Whisper model: `small`
+- Device: CPU
+- Compute type: `int8`
+- Language: Vietnamese (`vi`)
 
-## Next milestone
+Lần chạy đầu tiên có thể cần tải model Whisper về máy.
 
-v0.2 will replace manual push-to-talk boundaries with streaming audio + VAD/turn detection. After that the project can add streaming TTS, interruption/barge-in, realtime speech-to-speech, long-term memory and desktop tools.
+## Bước tiếp theo
+
+Chỉ sau khi bước Speech-to-Text này chạy ổn mới thêm VAD để tự phát hiện lúc bắt đầu/kết thúc nói. Sau đó mới phát triển streaming STT, LLM và TTS.
