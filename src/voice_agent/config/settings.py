@@ -18,6 +18,10 @@ class Settings:
     channels: int = 1
     max_history_turns: int = 12
     max_tool_rounds: int = 4
+    local_stt_model: str = "small"
+    local_stt_device: str = "cpu"
+    local_stt_compute_type: str = "int8"
+    local_stt_beam_size: int = 5
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -33,6 +37,10 @@ class Settings:
             channels=_int_env("VOICE_AGENT_CHANNELS", 1),
             max_history_turns=_int_env("VOICE_AGENT_MAX_HISTORY_TURNS", 12),
             max_tool_rounds=_int_env("VOICE_AGENT_MAX_TOOL_ROUNDS", 4),
+            local_stt_model=os.getenv("VOICE_AGENT_LOCAL_STT_MODEL", "small").strip(),
+            local_stt_device=os.getenv("VOICE_AGENT_LOCAL_STT_DEVICE", "cpu").strip(),
+            local_stt_compute_type=os.getenv("VOICE_AGENT_LOCAL_STT_COMPUTE_TYPE", "int8").strip(),
+            local_stt_beam_size=_int_env("VOICE_AGENT_LOCAL_STT_BEAM_SIZE", 5),
         )
 
     def validate_for_openai(self) -> None:
