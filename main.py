@@ -1,18 +1,60 @@
 from __future__ import annotations
 
-import tempfile
+import os
 import threading
-import wave
 from pathlib import Path
 
 import numpy as np
+import sherpa_onnx
 import sounddevice as sd
-from faster_whisper import WhisperModel
 
 SAMPLE_RATE = 16_000
 CHANNELS = 1
-MODEL_NAME = "small"
-LANGUAGE = "vi"
+MODEL_NAME = "sherpa-onnx-zipformer-vi-int8-2025-04-20"
+MODEL_DIR = Path(__file__).resolve().parent / "models" / MODEL_NAME
+
+ENCODER = MODEL_DIR / "encoder-epoch-12-avg-8.int8.onnx"
+DECODER = MODEL_DIR / "decoder-epoch-12-avg-8.onnx"
+JOINER = MODEL_DIR / "joiner-epoch-12-avg-8.int8.onnx"
+TOKENS = MODEL_DIR / "tokens.txt"
+
+NUM_THREADS = max(1, min(4, os.cpu_count() or 1))
+
+
+def require_model_files() -> None:
+    required = [ENCODER, DECODER, JOINER, TOKENS]
+    missing = [path for path in required if not path.is_file()]
+    if missing:
+        raise RuntimeError(
+            "Vietnamese Sherpa model is missing.\n"
+            "Run this command first:\n\n"
+            "    python setup_model.py\n"
+        )
+
+
+def create_recognizer() -> sherpa_onnx.OfflineRecognizer:
+    require_model_files()
+    return sherpa_onnx.OfflineRecognizer.from_transducer(
+        tokens=str(TOKENS),
+        encoder=str(ENCODER),
+        decoder=str(DECODER),
+        joiner=str(JOINER),
+        num_threads=NUM_THREADS,
+        sample_rate=SAMPLE_RATE,
+        feature_dim=80,
+        decoding_method="greedy_search",
+        max_active_paths=4,
+        provider="cpu",
+    )
+
+
+def print_microphone_info() -> None:
+    try:
+        device = sd.query_devices(kind="input")
+        name = device.get("name", "Unknown microphone")
+        print(f"Microphone: {name}")
+    except Exception:
+        print("Microphone: default input device")
 
 
 def record_until_enter() -> np.ndarray:
@@ -30,7 +72,7 @@ def record_until_enter() -> np.ndarray:
     with sd.InputStream(
         samplerate=SAMPLE_RATE,
         channels=CHANNELS,
-        dtype="int16",
+        dtype="float32",
         callback=callback,
     ):
         input()
@@ -38,48 +80,36 @@ def record_until_enter() -> np.ndarray:
     with lock:
         if not chunks:
             raise RuntimeError("No microphone audio was captured.")
-        return np.concatenate(chunks, axis=0)
+        audio = np.concatenate(chunks, axis=0).reshape(-1)
+
+    rms = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
+    if rms < 0.003:
+        print("[warning] Microphone signal is very quiet. Recognition may be inaccurate.")
+
+    return audio.astype(np.float32, copy=False)
 
 
-def save_wav(audio: np.ndarray, path: Path) -> None:
-    with wave.open(str(path), "wb") as wav_file:
-        wav_file.setnchannels(CHANNELS)
-        wav_file.setsampwidth(2)
-        wav_file.setframerate(SAMPLE_RATE)
-        wav_file.writeframes(audio.astype(np.int16, copy=False).tobytes())
-
-
-def transcribe(model: WhisperModel, audio: np.ndarray) -> str:
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
-        temp_path = Path(temp_file.name)
-
-    try:
-        save_wav(audio, temp_path)
-        segments, _ = model.transcribe(
-            str(temp_path),
-            language=LANGUAGE,
-            beam_size=5,
-        )
-        return " ".join(
-            segment.text.strip()
-            for segment in segments
-            if segment.text and segment.text.strip()
-        ).strip()
-    finally:
-        temp_path.unlink(missing_ok=True)
+def transcribe(recognizer: sherpa_onnx.OfflineRecognizer, audio: np.ndarray) -> str:
+    stream = recognizer.create_stream()
+    stream.accept_waveform(SAMPLE_RATE, audio)
+    recognizer.decode_stream(stream)
+    return stream.result.text.strip()
 
 
 def main() -> None:
-    print("Voice-Agent: Speech-to-Text")
-    print("Loading local Whisper model...")
-    model = WhisperModel(MODEL_NAME, device="cpu", compute_type="int8")
-    print("Ready. Press Ctrl+C to exit.\n")
+    print("Voice-Agent: Vietnamese Speech-to-Text")
+    print("Engine: sherpa-onnx")
+    print(f"Model: {MODEL_NAME}")
+    print_microphone_info()
+    print("Loading model...")
+    recognizer = create_recognizer()
+    print(f"Ready. CPU threads: {NUM_THREADS}. Press Ctrl+C to exit.\n")
 
     while True:
         input("Press Enter to start recording...")
         audio = record_until_enter()
         print("Transcribing...")
-        text = transcribe(model, audio)
+        text = transcribe(recognizer, audio)
         print(f"You: {text or '[no speech recognized]'}\n")
 
 
@@ -88,3 +118,5 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\nStopped.")
+    except Exception as exc:
+        print(f"\nError: {exc}")
